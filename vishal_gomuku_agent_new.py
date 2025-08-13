@@ -51,47 +51,47 @@ NEVER miss a 4-in-a-row threat! Losing to obvious threats = FAILURE.
 """.strip()
 
     def _parse_board_from_string(self, board_str: str) -> List[List[str]]:
-        """Parse board string into 2D array - FIXED VERSION"""
-        lines = board_str.strip().split('\n')
-        board = []
-        
-        for line in lines:
-            # Handle both spaced and non-spaced formats
-            if ' ' in line:
-                row = line.split()
-            else:
-                row = list(line)
-            
-            # Only take valid board characters
-            filtered_row = [cell for cell in row if cell in ['X', 'O', '.']]
-            if len(filtered_row) == 8:  # Valid row
-                board.append(filtered_row)
-        
-        return board
+        """Parse board string into 2D array - robust across formats."""
+        rows = []
+        for line in board_str.strip().split('\n'):
+            tokens = [ch for ch in line if ch in ['X', 'O', '.']]
+            if len(tokens) == 8:
+                rows.append(tokens)
+        # Ensure 8 rows by padding if needed (shouldn't happen but for safety)
+        while len(rows) < 8:
+            rows.append(['.'] * 8)
+        return rows[:8]
 
     def _check_line_for_threat(self, board: List[List[str]], start_r: int, start_c: int, 
                                dr: int, dc: int, player: str, target_count: int) -> List[Tuple[int, int]]:
         """Check a line direction for threats that need exact count."""
         threat_positions = []
         
-        # Scan along the line direction
-        for start_offset in range(-4, 5):  # Check all possible 5-piece windows
-            positions = []
-            for i in range(5):
-                r = start_r + start_offset * dr + i * dr
-                c = start_c + start_offset * dc + i * dc
-                if 0 <= r < 8 and 0 <= c < 8:
-                    positions.append((r, c))
-            
-            if len(positions) == 5:
-                pieces = [board[r][c] for r, c in positions]
-                player_count = pieces.count(player)
-                empty_count = pieces.count('.')
-                
-                # Check if this could be a threat (target_count pieces + 1 empty = win)
-                if player_count == target_count and empty_count == 1:
-                    empty_pos = next(pos for pos, piece in zip(positions, pieces) if piece == '.')
-                    threat_positions.append(empty_pos)
+        # Start from the given cell and extend both directions to collect a maximal line
+        line = []
+        r, c = start_r, start_c
+        
+        # Move backwards to the edge in this direction
+        while 0 <= r - dr < 8 and 0 <= c - dc < 8:
+            r -= dr
+            c -= dc
+        
+        # Collect the entire line forward until edge
+        while 0 <= r < 8 and 0 <= c < 8:
+            line.append((r, c))
+            r += dr
+            c += dc
+        
+        # Slide a window of size 5 across this line
+        for i in range(0, max(0, len(line) - 4)):
+            window = line[i:i+5]
+            pieces = [board[rr][cc] for rr, cc in window]
+            player_count = pieces.count(player)
+            empty_count = pieces.count('.')
+            if player_count == target_count and empty_count == 1:
+                # Return the empty cell in this window
+                empty_idx = pieces.index('.')
+                threat_positions.append(window[empty_idx])
         
         return threat_positions
 
@@ -108,34 +108,45 @@ NEVER miss a 4-in-a-row threat! Losing to obvious threats = FAILURE.
         
         return list(threats)
 
-    def _get_strategic_move(self, board: List[List[str]], me: str, opp: str) -> Tuple[int, int] | None:
-        """Get strategic move using explicit threat detection."""
-        
+    def _pick_best(self, candidates: List[Tuple[int, int]], legal_moves: List[Tuple[int, int]]) -> Tuple[int, int] | None:
+        """Pick the best candidate from list, preferring legal moves closest to center."""
+        legal = [m for m in candidates if m in legal_moves]
+        if not legal:
+            return None
+        return min(legal, key=lambda pos: abs(pos[0] - 3.5) + abs(pos[1] - 3.5))
+
+    def _get_strategic_move(self, board: List[List[str]], me: str, opp: str, legal_moves: List[Tuple[int, int]]) -> Tuple[int, int] | None:
+        """Get strategic move using explicit threat detection. Always return a single (row,col)."""
         # 1. Check for immediate wins (4 pieces + 1 empty = 5)
         win_moves = self._find_all_threats(board, me, 4)
-        if win_moves:
-            return win_moves[0]
-        
+        best = self._pick_best(win_moves, legal_moves)
+        if best:
+            return best
+
         # 2. Block opponent's immediate wins
         block_moves = self._find_all_threats(board, opp, 4)
-        if block_moves:
-            return block_moves
-        
+        best = self._pick_best(block_moves, legal_moves)
+        if best:
+            return best
+
         # 3. Create your own strong threats (3 pieces)
         my_strong_threats = self._find_all_threats(board, me, 3)
-        if my_strong_threats:
-            return my_strong_threats
-        
+        best = self._pick_best(my_strong_threats, legal_moves)
+        if best:
+            return best
+
         # 4. Block opponent's strong threats
         opp_strong_threats = self._find_all_threats(board, opp, 3)
-        if opp_strong_threats:
-            return opp_strong_threats
-        
+        best = self._pick_best(opp_strong_threats, legal_moves)
+        if best:
+            return best
+
         # 5. Build from existing pieces (2 pieces)
         my_extensions = self._find_all_threats(board, me, 2)
-        if my_extensions:
-            return my_extensions
-        
+        best = self._pick_best(my_extensions, legal_moves)
+        if best:
+            return best
+
         return None
 
     async def get_move(self, game_state: GameState) -> Tuple[int, int]:
@@ -148,9 +159,9 @@ NEVER miss a 4-in-a-row threat! Losing to obvious threats = FAILURE.
             # Parse board
             board_str = game_state.format_board(formatter="standard")
             board = self._parse_board_from_string(board_str)
-            
+
             # SAFEGUARD: Use algorithmic threat detection first
-            strategic_move = self._get_strategic_move(board, me, opp)
+            strategic_move = self._get_strategic_move(board, me, opp, legal_moves)
             if strategic_move and strategic_move in legal_moves:
                 print(f"STRATEGIC MOVE: {strategic_move}")
                 return strategic_move
@@ -214,5 +225,4 @@ ANALYZE SYSTEMATICALLY - don't just play random center moves!
 
     def _get_smart_fallback(self, legal_moves: List[Tuple[int, int]]) -> Tuple[int, int]:
         """Fallback that prefers central positions."""
-        center_distance = lambda pos: abs(pos[0] - 3.5) + abs(pos - 3.5)
-        return min(legal_moves, key=center_distance)
+        return min(legal_moves, key=lambda pos: abs(pos[0] - 3.5) + abs(pos[1] - 3.5))
