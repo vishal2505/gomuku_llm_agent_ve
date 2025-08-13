@@ -82,14 +82,32 @@ NEVER miss a 4-in-a-row threat! Losing to obvious threats = FAILURE.
             r += dr
             c += dc
         
+        opp = 'O' if player == 'X' else 'X'
+        
         # Slide a window of size 5 across this line
         for i in range(0, max(0, len(line) - 4)):
             window = line[i:i+5]
             pieces = [board[rr][cc] for rr, cc in window]
             player_count = pieces.count(player)
             empty_count = pieces.count('.')
-            if player_count == target_count and empty_count == 1:
-                # Return the empty cell in this window
+            opp_count = pieces.count(opp)
+
+            # Immediate win/block patterns: XXXX. / .XXXX / XX.XX (no opponent piece in window)
+            if target_count == 4 and player_count == 4 and empty_count == 1 and opp_count == 0:
+                empty_idx = pieces.index('.')
+                threat_positions.append(window[empty_idx])
+                continue
+
+            # Open-three patterns: .XXX. (two empties, zero opponent pieces)
+            if target_count == 3 and player_count == 3 and empty_count == 2 and opp_count == 0:
+                # Return both empty cells; caller will pick best by legality/center
+                for idx, val in enumerate(pieces):
+                    if val == '.':
+                        threat_positions.append(window[idx])
+                continue
+
+            # Optional: closed-three (one empty, one opponent) - lower priority
+            if target_count == 3 and player_count == 3 and empty_count == 1 and opp_count == 1:
                 empty_idx = pieces.index('.')
                 threat_positions.append(window[empty_idx])
         
