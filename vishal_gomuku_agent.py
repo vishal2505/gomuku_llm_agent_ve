@@ -24,96 +24,46 @@ class VishalGomokuLLMAgent(Agent):
     def _create_system_prompt(self) -> str:
         """Enhanced strategic Gomoku system prompt."""
         return """
-You are an EXPERT Gomoku (8×8, five-in-a-row) strategist competing in a tournament.
-You play either X or O on an 8×8 board. Empty cells are '.'.
-Coordinates are 0-indexed: row ∈ [0..7], col ∈ [0..7].
+You are an EXPERT Gomoku strategist. Your ONLY goal is to WIN by getting 5-in-a-row OR prevent opponent from getting 5-in-a-row.
 
-## CRITICAL SUCCESS PRINCIPLES
-1. NEVER make isolated moves - always build connected patterns
-2. ALWAYS analyze the ENTIRE board for threats before moving
-3. FOCUS on the CENTER area (rows 2-5, cols 2-5) in early game
-4. PRIORITIZE extending your longest sequences over starting new ones
+## CRITICAL RULES (CHECK IN EXACT ORDER):
 
-## MANDATORY PRIORITY SYSTEM (Execute in EXACT order)
+1. **INSTANT WIN CHECK**: If ANY legal move gives you 5-in-a-row, PLAY IT IMMEDIATELY!
+   - Check horizontal: count your pieces left + new piece + your pieces right = 5?
+   - Check vertical: count your pieces up + new piece + your pieces down = 5?  
+   - Check diagonals: count pieces in both diagonal directions = 5?
 
-### LEVEL 1: IMMEDIATE THREATS (Check these first!)
-1) **INSTANT WIN**: Systematically check if ANY legal move creates exactly 5-in-a-row:
-   - For each legal move, check all 8 directions (horizontal, vertical, 4 diagonals)
-   - Count: your pieces + the new piece + your pieces in opposite direction
-   - If total = 5, PLAY IT IMMEDIATELY (this is the winning move!)
-   
-2) **CRITICAL BLOCK**: If opponent has 4-in-a-row with open end(s), BLOCK immediately:
-   - Scan all opponent pieces for 4-in-a-row patterns
-   - Block the empty end(s) that would complete their 5-in-a-row
+2. **EMERGENCY BLOCK**: If opponent has 4-in-a-row anywhere, BLOCK IT IMMEDIATELY!
+   - Look for patterns like: XXXX., .XXXX, or XX.XX (opponent pieces)
+   - Block the empty spot that would give them 5-in-a-row
 
-### LEVEL 2: STRONG TACTICAL MOVES  
-3) **CREATE WINNING THREAT**: Make 4-in-a-row to force win next turn:
-   - Look for your 3-in-a-row that can become 4-in-a-row
-   - Prefer open-four (both ends free) over closed-four
-   
-4) **FORK CREATION**: Create double-threat (two separate ways to win)
-5) **BLOCK OPPONENT THREATS**: Stop opponent's dangerous 3-in-a-row patterns
+3. **PREVENT THREATS**: Block opponent's dangerous 3-in-a-row patterns:
+   - Look for .XXX. (open three - very dangerous!)
+   - Look for XXX. or .XXX (closed three - still dangerous)
+   - Block one end to prevent them from reaching 4-in-a-row
 
-### LEVEL 3: POSITIONAL ADVANTAGE
-6) **EXTEND LONGEST**: Add to your longest connected sequence (3+ pieces)
-7) **BUILD CENTER CONTROL**: Occupy central squares (3,3), (3,4), (4,3), (4,4)  
-8) **CREATE OPEN-THREE**: Make .XXX. pattern with room to extend
+4. **BUILD YOUR ATTACK**: Extend your longest sequences:
+   - If you have 3+ pieces in a row, try to extend them
+   - Create your own threats while blocking opponent
 
-### LEVEL 4: FALLBACK STRATEGY
-9) **ADJACENT PLACEMENT**: Place next to existing pieces (maintain connectivity)
-10) **CENTER PREFERENCE**: Choose moves closer to center (4,4) if no other priority
+## EXAMPLES OF CRITICAL SITUATIONS:
+- Opponent has (0,0)-(0,1)-(0,2)-(0,3): MUST block (0,4) immediately!
+- Opponent has (4,2)-(4,3)-(4,4)-(4,5): MUST block (4,1) or (4,6) immediately!
+- You have pieces at (3,2)-(3,3)-(3,4)-(3,5): Playing (3,6) = WIN!
 
-## PATTERN RECOGNITION EXAMPLES
-- Winning: XXXXX (any direction)
-- Open-four: .XXXX. or XXXX. or .XXXX
-- Open-three: .XXX. 
-- Closed-three: OXXX. or .XXXO (less valuable)
-- Fork: Two open-three patterns intersecting
+## WHAT TO LOOK FOR ON BOARD:
+- Horizontal lines: Count pieces in same row
+- Vertical lines: Count pieces in same column  
+- Diagonal lines: Count pieces on same diagonal (/ or \\)
 
-## BOARD ANALYSIS METHOD - WINNING DETECTION
-**CRITICAL**: For EVERY legal move, check if it creates 5-in-a-row:
-
-1. **Horizontal Check**: Place your piece, count left + center + right
-   Example: .XXX[new].  → Check: left pieces + new + right pieces = 5?
-   
-2. **Vertical Check**: Place your piece, count up + center + down  
-   Example: 
-   X
-   X  
-   X
-   [new]
-   . → Check: up pieces + new + down pieces = 5?
-   
-3. **Diagonal Check**: Both diagonal directions (/ and \)
-   Count pieces in both diagonal directions from new position
-
-4. **Verification**: If ANY direction gives exactly 5 connected pieces, THAT'S THE WINNING MOVE!
-
-## PATTERN RECOGNITION EXAMPLES - WINNING SITUATIONS
-- Horizontal win: XXXX. → place at . for XXXXX
-- Vertical win: X/X/X/X/. → place at . for 5 vertical
-- Diagonal win: X..../X..../X..../X..../..... → place at bottom-right for diagonal 5
-- Gap-fill win: XX.XX → place at middle . for XXXXX
-
-## STRATEGIC FOCUS AREAS
-Early game (moves 1-10): Control center (rows 2-5, cols 2-5)
-Mid game (moves 11-30): Build connected groups, block opponent patterns
-Late game (moves 31+): Force wins, prevent opponent forks
-
-## OUTPUT FORMAT
-Respond with JSON only:
+## OUTPUT FORMAT:
 {
-  "reasoning": "Priority level used and specific tactic (e.g., 'Level 1: Block opponent 4-in-a-row at (2,3)')",
-  "row": <int>,
-  "col": <int>
+  "reasoning": "Explain WHY this move (win/block/threat/extend)",
+  "row": <number>,
+  "col": <number>
 }
 
-## CRITICAL REMINDERS
-- SCAN for 4-in-a-row threats FIRST (yours and opponent's)
-- NEVER ignore opponent's growing patterns (3+ in a row)
-- ALWAYS prefer connected moves over isolated placements
-- The (row, col) MUST be from `legal_moves` list
-- Think like a tournament champion - every move must have strategic purpose
+REMEMBER: Blocking opponent threats is MORE IMPORTANT than creating your own!
 """.strip()
 
     def _check_immediate_win(self, game_state: GameState, player: str) -> Tuple[int, int] | None:
@@ -191,40 +141,32 @@ Respond with JSON only:
             move_count = sum(line.count('X') + line.count('O') for line in board_lines)
             game_phase = "EARLY" if move_count <= 10 else "MID" if move_count <= 30 else "LATE"
 
-            # Enhanced user prompt with board analysis
+            # Simplified but powerful user prompt
             user_prompt = (
-                f"=== GOMOKU MOVE ANALYSIS ===\n"
-                f"You are player: {me}\n"
-                f"Opponent is: {opp}\n"
-                f"Game phase: {game_phase} (move #{move_count + 1})\n"
-                f"Legal moves available: {len(legal_moves)} positions\n\n"
+                f"=== GOMOKU BATTLE ===\n"
+                f"You are: {me}\n"
+                f"Opponent: {opp}\n"
+                f"Move #{move_count + 1}\n\n"
                 
-                f"CURRENT BOARD STATE:\n"
-                f"{board_str}\n\n"
+                f"BOARD:\n{board_str}\n\n"
                 
-                f"CRITICAL ANALYSIS CHECKLIST (MUST DO IN ORDER):\n"
-                f"1. *** WINNING CHECK ***: For EACH legal move, imagine placing {me} there\n"
-                f"   - Count horizontal: pieces left + new + pieces right = 5?\n"
-                f"   - Count vertical: pieces up + new + pieces down = 5?\n" 
-                f"   - Count diagonal /: pieces + new + pieces = 5?\n"
-                f"   - Count diagonal \\: pieces + new + pieces = 5?\n"
-                f"   - If ANY equals 5, THAT IS THE WINNING MOVE!\n\n"
-                f"2. *** BLOCK CHECK ***: Scan for {opp} 4-in-a-row patterns that need immediate blocking\n"
-                f"3. Look for {me} 3-in-a-row that can become threatening 4-in-a-row\n"  
-                f"4. Look for {opp} 3-in-a-row patterns that need blocking\n"
-                f"5. Extend your longest connected sequences\n"
-                f"6. Maintain connectivity - never play isolated moves\n\n"
+                f"URGENT CHECKS (do these in order):\n"
+                f"1. Can YOU win in 1 move? Check if placing {me} anywhere creates 5-in-a-row!\n"
+                f"2. Can OPPONENT win in 1 move? Check if they have 4-in-a-row to block!\n"
+                f"3. Does opponent have dangerous 3-in-a-row patterns? Block them!\n"
+                f"4. Can you extend your longest sequence?\n\n"
                 
-                f"LEGAL MOVES (row,col): {legal_moves}\n\n"
+                f"EXAMPLES FROM YOUR LOSING GAMES:\n"
+                f"- SuperDuper won with (0,0)→(0,1)→(0,2)→(0,3)→(0,4) horizontally\n"
+                f"- GomokuRobot won with (4,4)→(4,3)→(4,5)→(4,6)→(4,2) horizontally\n"
+                f"- Don't let this happen again!\n\n"
                 
-                f"INSTRUCTIONS:\n"
-                f"- FIRST: Check EVERY legal move for immediate 5-in-a-row wins\n"
-                f"- Example: If you have XX.XX horizontally, placing in middle . = XXXXX = WIN!\n"
-                f"- Example: If you have XXXX. pattern, placing at . = XXXXX = WIN!\n"
-                f"- Use the MANDATORY PRIORITY SYSTEM from your training\n"
-                f"- State which priority level (1-4) you're using in reasoning\n"
-                f"- NEVER make isolated moves unless forced\n"
-                f"- Return JSON format ONLY\n"
+                f"Legal moves: {legal_moves}\n\n"
+                
+                f"RESPOND WITH JSON:\n"
+                f"- First check for wins and blocks\n"
+                f"- Explain your reasoning clearly\n"
+                f"- Choose coordinates from legal moves only\n"
             )
 
             messages = [
@@ -234,8 +176,8 @@ Respond with JSON only:
 
             kwargs = dict(
                 messages=messages,
-                temperature=0.1,  # Lower temperature for more consistent strategic play
-                max_tokens=150,   # Slightly more tokens for reasoning
+                temperature=0.0,  # Most deterministic for tactical decisions
+                max_tokens=100,   # Shorter responses, more focused
                 response_format={"type": "json_object"},
             )
 
