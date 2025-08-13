@@ -34,8 +34,6 @@ The `VishalGomokuLLMAgent` implements a strategic priority system:
 ## Files
 
 - `vishal_gomuku_agent.py`: Main agent implementation
-- `prompt.txt`: Assignment details and requirements
-- `README.md`: This documentation
 
 ## Usage
 
