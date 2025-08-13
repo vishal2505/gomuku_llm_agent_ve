@@ -1,5 +1,5 @@
 {
-    "name": "VishalGomokuLLMAgent",
+    "name": "VishalGomokuLLMAgent2",
     "agent_class": "vishal_gomuku_agent.VishalGomokuLLMAgent",
     "author": "Vishal",
     "description": "LLM-powered Gomoku agent for 8x8 five-in-a-row tournament developed by Vishal and Ekjot."
