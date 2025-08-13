@@ -37,17 +37,26 @@ Coordinates are 0-indexed: row ∈ [0..7], col ∈ [0..7].
 ## MANDATORY PRIORITY SYSTEM (Execute in EXACT order)
 
 ### LEVEL 1: IMMEDIATE THREATS (Check these first!)
-1) **INSTANT WIN**: If ANY move creates exactly 5-in-a-row, play it immediately
-2) **CRITICAL BLOCK**: If opponent has 4-in-a-row with open end(s), BLOCK immediately
+1) **INSTANT WIN**: Systematically check if ANY legal move creates exactly 5-in-a-row:
+   - For each legal move, check all 8 directions (horizontal, vertical, 4 diagonals)
+   - Count: your pieces + the new piece + your pieces in opposite direction
+   - If total = 5, PLAY IT IMMEDIATELY (this is the winning move!)
+   
+2) **CRITICAL BLOCK**: If opponent has 4-in-a-row with open end(s), BLOCK immediately:
+   - Scan all opponent pieces for 4-in-a-row patterns
+   - Block the empty end(s) that would complete their 5-in-a-row
 
-### LEVEL 2: STRONG TACTICAL MOVES
-3) **CREATE WINNING THREAT**: Make open-four (_.XXXX._ or .XXXX._) to threaten win next turn
-4) **FORK CREATION**: Create double-threat (two ways to win simultaneously)
-5) **BLOCK OPPONENT THREATS**: Stop opponent's open-three (.OOO.) or growing patterns
+### LEVEL 2: STRONG TACTICAL MOVES  
+3) **CREATE WINNING THREAT**: Make 4-in-a-row to force win next turn:
+   - Look for your 3-in-a-row that can become 4-in-a-row
+   - Prefer open-four (both ends free) over closed-four
+   
+4) **FORK CREATION**: Create double-threat (two separate ways to win)
+5) **BLOCK OPPONENT THREATS**: Stop opponent's dangerous 3-in-a-row patterns
 
 ### LEVEL 3: POSITIONAL ADVANTAGE
 6) **EXTEND LONGEST**: Add to your longest connected sequence (3+ pieces)
-7) **BUILD CENTER CONTROL**: Occupy central squares (3,3), (3,4), (4,3), (4,4)
+7) **BUILD CENTER CONTROL**: Occupy central squares (3,3), (3,4), (4,3), (4,4)  
 8) **CREATE OPEN-THREE**: Make .XXX. pattern with room to extend
 
 ### LEVEL 4: FALLBACK STRATEGY
@@ -61,11 +70,30 @@ Coordinates are 0-indexed: row ∈ [0..7], col ∈ [0..7].
 - Closed-three: OXXX. or .XXXO (less valuable)
 - Fork: Two open-three patterns intersecting
 
-## BOARD ANALYSIS METHOD
-1. Scan ALL 8 directions from each existing piece
-2. Count consecutive pieces + available extensions
-3. Identify immediate threats (4-in-a-row)
-4. Look for pattern completion opportunities
+## BOARD ANALYSIS METHOD - WINNING DETECTION
+**CRITICAL**: For EVERY legal move, check if it creates 5-in-a-row:
+
+1. **Horizontal Check**: Place your piece, count left + center + right
+   Example: .XXX[new].  → Check: left pieces + new + right pieces = 5?
+   
+2. **Vertical Check**: Place your piece, count up + center + down  
+   Example: 
+   X
+   X  
+   X
+   [new]
+   . → Check: up pieces + new + down pieces = 5?
+   
+3. **Diagonal Check**: Both diagonal directions (/ and \)
+   Count pieces in both diagonal directions from new position
+
+4. **Verification**: If ANY direction gives exactly 5 connected pieces, THAT'S THE WINNING MOVE!
+
+## PATTERN RECOGNITION EXAMPLES - WINNING SITUATIONS
+- Horizontal win: XXXX. → place at . for XXXXX
+- Vertical win: X/X/X/X/. → place at . for 5 vertical
+- Diagonal win: X..../X..../X..../X..../..... → place at bottom-right for diagonal 5
+- Gap-fill win: XX.XX → place at middle . for XXXXX
 
 ## STRATEGIC FOCUS AREAS
 Early game (moves 1-10): Control center (rows 2-5, cols 2-5)
@@ -88,12 +116,74 @@ Respond with JSON only:
 - Think like a tournament champion - every move must have strategic purpose
 """.strip()
 
+    def _check_immediate_win(self, game_state: GameState, player: str) -> Tuple[int, int] | None:
+        """Check if there's an immediate winning move for the given player."""
+        legal_moves = game_state.get_legal_moves()
+        board = [['.'] * 8 for _ in range(8)]
+        
+        # Reconstruct board from game state
+        board_str = game_state.format_board(formatter="standard")
+        lines = board_str.strip().split('\n')
+        for i, line in enumerate(lines):
+            for j, cell in enumerate(line):
+                if cell in ['X', 'O']:
+                    board[i][j] = cell
+        
+        # Check each legal move
+        for row, col in legal_moves:
+            # Temporarily place the piece
+            board[row][col] = player
+            
+            # Check all 8 directions for 5-in-a-row
+            directions = [
+                (0, 1), (1, 0), (1, 1), (1, -1),  # horizontal, vertical, diagonals
+                (0, -1), (-1, 0), (-1, -1), (-1, 1)  # opposite directions
+            ]
+            
+            for dr, dc in [(0, 1), (1, 0), (1, 1), (1, -1)]:  # 4 main directions
+                count = 1  # count the placed piece
+                
+                # Count in positive direction
+                r, c = row + dr, col + dc
+                while 0 <= r < 8 and 0 <= c < 8 and board[r][c] == player:
+                    count += 1
+                    r, c = r + dr, c + dc
+                
+                # Count in negative direction  
+                r, c = row - dr, col - dc
+                while 0 <= r < 8 and 0 <= c < 8 and board[r][c] == player:
+                    count += 1
+                    r, c = r - dr, c - dc
+                
+                if count >= 5:
+                    board[row][col] = '.'  # restore board
+                    return (row, col)
+            
+            # Restore board
+            board[row][col] = '.'
+        
+        return None
+
     async def get_move(self, game_state: GameState) -> Tuple[int, int]:
         """Return the next move coordinates as (row, col)."""
         try:
-            board_str = game_state.format_board(formatter="standard")
             me = game_state.current_player.value
             opp = "O" if me == "X" else "X"
+            
+            # SAFEGUARD: Check for immediate winning moves first
+            winning_move = self._check_immediate_win(game_state, me)
+            if winning_move:
+                print(f"SAFEGUARD: Immediate winning move found: {winning_move}")
+                return winning_move
+            
+            # SAFEGUARD: Check if we need to block opponent's winning move
+            opponent_winning_move = self._check_immediate_win(game_state, opp)
+            if opponent_winning_move:
+                print(f"SAFEGUARD: Blocking opponent's winning move: {opponent_winning_move}")
+                return opponent_winning_move
+            
+            # Continue with LLM-based strategy
+            board_str = game_state.format_board(formatter="standard")
             legal_moves = game_state.get_legal_moves()
             
             # Count pieces for game phase analysis
@@ -112,19 +202,27 @@ Respond with JSON only:
                 f"CURRENT BOARD STATE:\n"
                 f"{board_str}\n\n"
                 
-                f"ANALYSIS CHECKLIST:\n"
-                f"1. Scan for ANY {me} 4-in-a-row that needs one more piece to win\n"
-                f"2. Scan for ANY {opp} 4-in-a-row that MUST be blocked immediately\n"
-                f"3. Look for {me} 3-in-a-row patterns that can become 4-in-a-row\n"
+                f"CRITICAL ANALYSIS CHECKLIST (MUST DO IN ORDER):\n"
+                f"1. *** WINNING CHECK ***: For EACH legal move, imagine placing {me} there\n"
+                f"   - Count horizontal: pieces left + new + pieces right = 5?\n"
+                f"   - Count vertical: pieces up + new + pieces down = 5?\n" 
+                f"   - Count diagonal /: pieces + new + pieces = 5?\n"
+                f"   - Count diagonal \\: pieces + new + pieces = 5?\n"
+                f"   - If ANY equals 5, THAT IS THE WINNING MOVE!\n\n"
+                f"2. *** BLOCK CHECK ***: Scan for {opp} 4-in-a-row patterns that need immediate blocking\n"
+                f"3. Look for {me} 3-in-a-row that can become threatening 4-in-a-row\n"  
                 f"4. Look for {opp} 3-in-a-row patterns that need blocking\n"
-                f"5. Find moves that extend your longest connected sequences\n"
-                f"6. Prefer center area in early game, connectivity always\n\n"
+                f"5. Extend your longest connected sequences\n"
+                f"6. Maintain connectivity - never play isolated moves\n\n"
                 
                 f"LEGAL MOVES (row,col): {legal_moves}\n\n"
                 
                 f"INSTRUCTIONS:\n"
+                f"- FIRST: Check EVERY legal move for immediate 5-in-a-row wins\n"
+                f"- Example: If you have XX.XX horizontally, placing in middle . = XXXXX = WIN!\n"
+                f"- Example: If you have XXXX. pattern, placing at . = XXXXX = WIN!\n"
                 f"- Use the MANDATORY PRIORITY SYSTEM from your training\n"
-                f"- State which priority level (1-4) you're using\n"
+                f"- State which priority level (1-4) you're using in reasoning\n"
                 f"- NEVER make isolated moves unless forced\n"
                 f"- Return JSON format ONLY\n"
             )
