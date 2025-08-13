@@ -2,6 +2,8 @@ import json
 import re
 import random
 from typing import Tuple, List
+from gomoku import Agent, GameState
+from gomoku.llm import OpenAIGomokuClient
 
 class VishalGomokuLLMAgent2(Agent):
     """LLM-powered Gomoku agent for 8x8 five-in-a-row tournament."""
