@@ -5,7 +5,7 @@ from typing import Tuple, List
 from gomoku import Agent, GameState
 from gomoku.llm import OpenAIGomokuClient
 
-class VishalGomokuLLMAgent3(Agent):
+class VishalGomokuLLMAgent5(Agent):
     """LLM-powered Gomoku agent for 8x8 five-in-a-row tournament."""
 
     def __init__(self, agent_id: str):
@@ -41,14 +41,13 @@ For EVERY row, column, and BOTH diagonals (\\ and //):
 - Check if opponent could win next move
 - Pay special attention to diagonal .XXX. and XXXX. patterns
 
-## OUTPUT FORMAT:
+## OUTPUT FORMAT (STRICT):
+Return JSON only, no extra text:
 {
   "reasoning": "STEP 1: [what you checked]. STEP 2: [what you found]. DECISION: [why this move]",
   "row": <number>,
   "col": <number>
 }
-
-NEVER miss a 4-in-a-row threat! Losing to obvious threats = FAILURE.
 """.strip()
 
     def _parse_board_from_string(self, board_str: str) -> List[List[str]]:
@@ -104,6 +103,11 @@ NEVER miss a 4-in-a-row threat! Losing to obvious threats = FAILURE.
                 if pieces[0] == '.' and pieces[1] == player and pieces[2] == player and pieces[3] == player and pieces[4] == '.':
                     threat_positions.append(window[0])
                     threat_positions.append(window[4])
+                else:
+                    # Also consider broken-threes like X.XX or XX.X (return both empties)
+                    for idx, val in enumerate(pieces):
+                        if val == '.':
+                            threat_positions.append(window[idx])
                 continue
 
             # Optional: closed-three (one empty, one opponent) - lower priority
@@ -142,11 +146,12 @@ NEVER miss a 4-in-a-row threat! Losing to obvious threats = FAILURE.
         return list(threats)
 
     def _score_move(self, board: List[List[str]], r: int, c: int, me: str) -> int:
-        """Score a move by the longest contiguous line it creates for 'me'."""
+        """Score a move by the longest contiguous line it creates for 'me' and fork potential."""
         if board[r][c] != '.':
             return -1
         board[r][c] = me
         best = 0
+        fork_bonus = 0
         for dr, dc in [(0,1), (1,0), (1,1), (1,-1)]:
             cnt = 1
             rr, cc = r + dr, c + dc
@@ -160,8 +165,11 @@ NEVER miss a 4-in-a-row threat! Losing to obvious threats = FAILURE.
                 rr -= dr
                 cc -= dc
             best = max(best, cnt)
+            if cnt >= 3:
+                fork_bonus += 1
         board[r][c] = '.'
-        return best
+        # Weight best line more, add small fork bonus
+        return best * 10 + fork_bonus
 
     def _pick_best(self, candidates: List[Tuple[int, int]], legal_moves: List[Tuple[int, int]], board: List[List[str]], me: str) -> Tuple[int, int] | None:
         """Pick the best candidate: maximize our line length, then prefer center."""
@@ -238,17 +246,12 @@ CURRENT BOARD:
 CRITICAL ANALYSIS REQUIRED:
 1. Check EVERY row for patterns like "XXXX." or ".XXXX" (4-in-a-row to block)
 2. Check EVERY column for vertical 4-in-a-row patterns  
-3. Check EVERY diagonal for diagonal 4-in-a-row patterns
+3. Check EVERY diagonal (\\ and //) for diagonal 4-in-a-row and .XXX. patterns
 4. Look for your own winning opportunities
-
-PREVIOUS LOSSES TO LEARN FROM:
-- Lost Game 1: Missed blocking (0,4) when opponent had XXXX in row 0
-- Lost Game 2: Missed blocking (4,2) when opponent had XXXX in row 4  
-- Lost Game 3: Missed blocking threats that led to diagonal/vertical wins
 
 Legal moves: {legal_moves}
 
-ANALYZE SYSTEMATICALLY - don't just play random center moves!
+Provide JSON only.
 """
 
             messages = [
@@ -256,10 +259,10 @@ ANALYZE SYSTEMATICALLY - don't just play random center moves!
                 {"role": "user", "content": user_prompt},
             ]
 
-            # Call LLM with better settings
+            # Call LLM with deterministic settings
             response = await self.llm.complete(
                 messages=messages,
-                temperature=0.1,  # Low temp for tactical decisions
+                temperature=0.0,
                 max_tokens=150,
             )
 
